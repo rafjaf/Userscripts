@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Législation consolidée
 // @namespace    https://tampermonkey.net/
-// @version      0.1-2022-09-11
+// @version      0.1-2022-09-15
 // @description  Improve Justel
 // @author       RJ
 // @match        https://www.ejustice.just.fgov.be/cgi_loi/loi_a1.pl*
@@ -345,7 +345,8 @@
             heading.id = "node" + counter.toString().padStart(5, "0");
             heading.type = n.textContent.split(" ")[0].toLowerCase().trim();
             if ( !HEADINGS_TYPE.some(el => el == heading.type) ) {
-                if (heading.type.startsWith("disposition") || !n?.nextElementSibling?.nextElementSibling) {
+                if (heading.type.startsWith("disposition") || !n?.nextElementSibling?.nextElementSibling
+                   || n?.nextElementSibling?.nextSibling?.nodeName == "#text") {
                     // If type is unknown, use last known type
                     // If this is the first heading, then remember to set it later
                     if (currentParents.length) {
@@ -551,31 +552,6 @@
             else if ( (n.nodeName == "A") && (n.name) && (n.name.startsWith("Art") || n.textContent.toLowerCase().startsWith("annexe") ) ) {
                 // This is an article, to be attached to last heading
                 if (lastNode) { beautify(lastNode); }
-                /*
-                let article = {};
-                article.id = "node" + counter.toString().padStart(5, "0");
-                article.type = "article";
-                article.text = n.textContent;
-                article.titleOngoing = true;
-                article.content = n.textContent;
-                article.level = "article";
-                if (!currentParents.length) {
-                    // If there is no heading to attach the article, create a fake heading
-                    let heading = {}
-                    heading.id = "node" + (counter -1).toString().padStart(5, "0");
-                    heading.type = "dispositif";
-                    heading.text = "Dispositif";
-                    heading.content = "Dispositif<br><br>";
-                    heading.level = "level1";
-                    heading.children = [];
-                    headingsWhoseTypeNeedsToBeDefined.push(heading);
-                    currentParents.push(heading);
-                    act.content.push(heading);
-                }
-                currentParents.slice(-1)[0].children.push(article);
-                lastNode = article;
-                counter += 1;
-                */
                 lastNode = buildLastNode(n);
                 currentParents.slice(-1)[0].children.push(lastNode);
                 counter += 1;
@@ -1109,16 +1085,18 @@
                 clientId: DROPBOX_CLIENT_ID,
             });
             dbxAuth.setAccessToken(highlightsBackup.accessToken);
+            dbxAuth.setRefreshToken(highlightsBackup.refreshToken);
             let dbx = new Dropbox.Dropbox({
                 auth: dbxAuth
             });
             let r = await dbx.filesUpload({
                 path: '/' + highlightsBackup.filename /* + " " + date */ + ".json",
-                contents: data
+                contents: data,
+                mode: {".tag": "overwrite"},
             });
             console.log("Backup to Dropbox done", r);
             highlightsBackup.lastBackup = date;
-            // await localforage.setItem("highlightsBackup", highlightsBackup);
+            await localforage.setItem("highlightsBackup", highlightsBackup);
         }
     }
 
@@ -1168,7 +1146,9 @@
             dbxAuth.setCodeVerifier(highlightsBackup.codeVerifier);
             let u = new URLSearchParams(window.location.search);
             let response = await dbxAuth.getAccessTokenFromCode(DROPBOX_REDIRECT_URL, u.get("code"));
+            console.log("Response from Dropbox", response);
             highlightsBackup.accessToken = response.result.access_token;
+            highlightsBackup.refreshToken = response.result.refresh_token;
             await localforage.setItem("highlightsBackup", highlightsBackup);
             window.location.href = highlightsBackup.redirect;
         }
