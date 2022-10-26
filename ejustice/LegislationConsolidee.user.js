@@ -1,7 +1,9 @@
 // ==UserScript==
 // @name         Législation consolidée
 // @namespace    https://tampermonkey.net/
-// @version      0.1-2022-09-15
+// @version      0.1-2022-10-26
+// @updateURL    https://github.com/rafjaf/Userscripts/raw/main/ejustice/LegislationConsolidee.user.js
+// @downloadURL  https://github.com/rafjaf/Userscripts/raw/main/ejustice/LegislationConsolidee.user.js
 // @description  Improve Justel
 // @author       RJ
 // @match        https://www.ejustice.just.fgov.be/cgi_loi/loi_a1.pl*
@@ -314,6 +316,13 @@
     }
 
     .violet {
+        text-decoration: underline;
+        text-decoration-color: mediumpurple;
+        text-decoration-thickness: 2pt;
+        text-decoration-skip-ink: none;
+    }
+
+    .circle.violet, annotation.violet {
         background: mediumpurple;
     }
 
@@ -445,8 +454,8 @@
             if (m) { n.text = m[0]; }
             // Rules depending on node type
             if (n.type == "article") {
-                const INDENT_TYPE = [/^(?:<b>.+<\/b>)?(?:\[<sup>.+<\/sup>\s?)?§\s\d+(er)?(\/\d+)?\./, /^(?:\[<sup>.+<\/sup>\s?|\()?\d+°(bis|ter|quater|quinquies|sexies|septies|octies|nonies|decies)?/,
-                                     /^(?:\[<sup>.+<\/sup>\s?)?\(?\w\)/, /^(?:\[<sup>.+<\/sup>\s?)?[ivx]+\.\s/, /^(?:\[<sup>.+<\/sup>\s?)?-\s/];
+                const INDENT_TYPE = [/^(?:<b>.+<\/b>)?(?:\[(<sup>.+<\/sup>)?\s?)?§\s\d+(er)?(\/\d+)?\./, /^(?:\[(<sup>.+<\/sup>)?\s?|\()?\d+°(bis|ter|quater|quinquies|sexies|septies|octies|nonies|decies)?/,
+                                     /^(?:\[(<sup>.+<\/sup>)?\s?)?\(?\w\)/, /^(?:\[(<sup>.+<\/sup>)?\s?)?[ivx]+\.\s/, /^(?:\[(<sup>.+<\/sup>)?\s?)?-\s/];
                 let content = n.content.split("<br>").map(el => el.trim().replace(/\s\s/g, " "));
                 let contentIndent = new Array(content.length);
                 // For article's indent the logic is as follows:
@@ -539,7 +548,7 @@
         let contentNodes = Array.from(Array.from(document.querySelectorAll("body > table > tbody > tr:nth-child(1) > th:nth-child(1)"))
             .filter(el => el.textContent.indexOf("Texte") > -1)[0].parentElement.nextElementSibling.children[0].childNodes);
         // Correct erroneous encoding of the text
-        const WRONG_LAST_NODENAME = ["ERRATUM,M.B.", "I", "BR&GT;<BR"];
+        const WRONG_LAST_NODENAME = ["ERRATUM,M.B.", "I", "BR&GT;<BR", "L"];
         while ( WRONG_LAST_NODENAME.some(el => el == contentNodes.slice(-1)[0].nodeName) ) {
             contentNodes = contentNodes.concat( Array.from( contentNodes.slice(-1)[0].childNodes ) );
         }
@@ -576,6 +585,9 @@
                     lastNode.content += n.outerHTML
                     currentParents.slice(-1)[0].children.push(lastNode);
                     counter += 1;
+                }
+                else {
+                    lastNode.content += n.outerHTML;
                 }
             }
             else if ( (n.nodeName == "#text") && lastNode && n.textContent.trim() ) {
@@ -677,9 +689,15 @@
         act.date = act.eli.split("/").slice(5,8).join("-");
         act.title = titleTable.querySelector("tbody > tr:nth-child(3) > th > b")
             .firstChild.textContent.replace(/\(.+/, "")
-            .split("-").slice(1).join("-").trim().split(" ").slice(1).join(" ").toLowerCase();
+            .split("-").slice(1).join("-").trim().split(" ");
+        if (act.title[0] != "CODE") {
+            act.title = act.title.slice(1);
+        }
+        act.title = act.title.join(" ");
+        act.fullTitle = `${act.type.slice(0,1).toUpperCase()}. ${act.date} ${act.title}`;
         act.lastUpdate = titleTable.querySelector("tbody > tr:nth-child(3) > th")
-                         .innerHTML.split("mise à jour au")?.[1]?.match(/\d{2}-\d{2}-\d{4}/)?.[0]
+                         .innerHTML.split("mise à jour au")?.[1]?.match(/(\d{2})-(\d{2})-(\d{4})/)
+                         ?.slice(1)?.reverse()?.join("-")
                          || act.date;
     }
 
@@ -703,7 +721,7 @@
         heading.text = "Visas";
         heading.content = "Visas";
         heading.children = [];
-        if (preamble.length && (act.type =! "loi")) {
+        if (preamble.length && (act.type != "loi")) {
             let preambleContent = "<br><div class='level2'>Préambule</div>"
                 + $(preamble[0]).parent().next().children().html();
             heading.children.push({id: "preamble_text", type: "article", level: "article", text: "Préambule", content: preambleContent});
@@ -805,7 +823,7 @@
             a.style = "display: none";
             document.body.appendChild(a);
             a.href = act.consolidatedPDF;
-            a.download = `${act.type.slice(0,1).toUpperCase()}. ${act.date} ${act.title}.pdf`;
+            a.download = `${act.fullTitle}${act.date == act.lastUpdate ? "" : " (MAJ " + act.lastUpdate + ")"}.pdf`;
             a.click();
             a.remove();
         });
@@ -852,6 +870,8 @@
             await localforage.setItem("updateInfo", updateInfo);
             $("a#clearDB").parent().hide("slow");
         });
+        // Change document title
+        document.querySelector("head > title").text = act.fullTitle;
         // Set up highlighter
         $("div#content").on( "mouseup", manageHighlights );
         $("div#content").append("<div id='toolbar'><div class='circle yellow'></div><div class='circle green'></div><div class='circle blue'></div>"
